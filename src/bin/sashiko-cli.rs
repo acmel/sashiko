@@ -118,7 +118,13 @@ async fn main() -> Result<()> {
     // Load settings, falling back to defaults if file missing/invalid
     let base_url = cli.server.unwrap_or_else(|| {
         Settings::new()
-            .map(|s| format!("http://{}:{}", s.server.host, s.server.port))
+            .map(|s| {
+                if s.server.host.contains(':') {
+                    format!("http://[::1]:{}", s.server.port)
+                } else {
+                    format!("http://{}:{}", s.server.host, s.server.port)
+                }
+            })
             .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string())
     });
 

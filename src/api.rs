@@ -23,7 +23,7 @@ use axum::{
     routing::{get, get_service, post},
 };
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -272,10 +272,14 @@ pub async fn run_server(
         .nest_service("/static", ServeDir::new("static"))
         .with_state(state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], settings.port));
-    info!("Web API listening on {}", addr);
+    let bind_addr = format!("{}:{}", settings.host, settings.port);
+    let addrs: Vec<SocketAddr> = bind_addr
+        .to_socket_addrs()
+        .map_err(|e| anyhow::anyhow!("invalid bind address '{}': {}", bind_addr, e))?
+        .collect();
+    info!("Web API listening on {:?}", addrs);
 
-    let listener = TcpListener::bind(addr).await?;
+    let listener = TcpListener::bind(addrs.as_slice()).await?;
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
@@ -309,7 +313,7 @@ async fn submit_patch(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    if !state.allow_all_submit && !addr.ip().is_loopback() {
+    if !state.allow_all_submit && !addr.ip().to_canonical().is_loopback() {
         info!("Refused patch submission from non-localhost: {}", addr);
         return Err(StatusCode::FORBIDDEN);
     }
@@ -914,7 +918,7 @@ async fn rerun_patchset(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    if !state.allow_all_submit && !addr.ip().is_loopback() {
+    if !state.allow_all_submit && !addr.ip().to_canonical().is_loopback() {
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -940,7 +944,7 @@ async fn rerun_patch(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    if !state.allow_all_submit && !addr.ip().is_loopback() {
+    if !state.allow_all_submit && !addr.ip().to_canonical().is_loopback() {
         return Err(StatusCode::FORBIDDEN);
     }
 

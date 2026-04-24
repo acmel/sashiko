@@ -117,7 +117,11 @@ async fn main() -> Result<()> {
         "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git".to_string()
     });
 
-    let target_url = format!("http://127.0.0.1:{}/api/submit", port);
+    let target_url = if settings.server.host.contains(':') {
+        format!("http://[::1]:{}/api/submit", port)
+    } else {
+        format!("http://{}:{}/api/submit", settings.server.host, port)
+    };
     let client = Client::new();
 
     // --- Phase 1: Ingestion ---
