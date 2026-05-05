@@ -8,6 +8,18 @@ use tracing::{debug, info};
 
 use super::{AiProvider, AiRequest, AiResponse, ProviderCapabilities};
 
+fn fmt_thousands(n: u64) -> String {
+    let s = n.to_string();
+    let mut result = String::with_capacity(s.len() + s.len() / 3);
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            result.push('.');
+        }
+        result.push(c);
+    }
+    result
+}
+
 pub struct CachingAiProvider {
     inner: Arc<dyn AiProvider>,
     conn: libsql::Connection,
@@ -128,7 +140,11 @@ impl AiProvider for CachingAiProvider {
                 };
                 info!(
                     "Cache hit [{}] ({}) — {} tokens saved (total {}: {})",
-                    hash_prefix, origin, tokens_saved, origin, total
+                    hash_prefix,
+                    origin,
+                    fmt_thousands(tokens_saved as u64),
+                    origin,
+                    fmt_thousands(total)
                 );
                 if let Some(ref mut usage) = resp.usage {
                     usage.cached_tokens =
