@@ -14,7 +14,7 @@
 
 use crate::ReviewStatus;
 use crate::ai::quota::QuotaManager;
-use crate::ai::{AiProvider, AiRequest, create_provider};
+use crate::ai::{AiProvider, AiRequest, create_provider_cached};
 use crate::baseline::{BaselineRegistry, BaselineResolution, extract_files_from_diff};
 use crate::db::{AiInteractionParams, Database, Finding, PatchsetRow, Severity, ToolUsage};
 use crate::email_policy::EmailPolicyConfig;
@@ -90,7 +90,7 @@ impl Reviewer {
     ///
     /// * `db` - The database connection.
     /// * `settings` - Application settings.
-    pub fn new(db: Arc<Database>, settings: Settings) -> Self {
+    pub async fn new(db: Arc<Database>, settings: Settings) -> Self {
         let concurrency = settings.review.concurrency;
         let repo_path = PathBuf::from(&settings.git.repository_path);
 
@@ -111,11 +111,14 @@ impl Reviewer {
                 }
             };
 
-        // Initialize Provider
-        let provider = create_provider(&settings).expect("Failed to create AI provider");
+        let provider = create_provider_cached(
+            &settings,
+            settings.ai.response_cache,
+            settings.ai.response_cache_ttl_days,
+        )
+        .await
+        .expect("Failed to create AI provider");
 
-        // Initialize CacheManager
-        // Assuming prompts are in "third_party/prompts/kernel" in CWD.
         Self {
             db,
             settings,

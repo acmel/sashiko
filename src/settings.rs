@@ -183,12 +183,20 @@ pub struct AiSettings {
     /// Useful for debugging but verbose; disabled by default.
     #[serde(default)]
     pub log_turns: bool,
+    #[serde(default)]
+    pub response_cache: bool,
+    #[serde(default = "default_response_cache_ttl_days")]
+    pub response_cache_ttl_days: u64,
     // Provider-specific settings
     pub claude: Option<ClaudeSettings>,
     pub gemini: Option<GeminiSettings>,
     #[cfg(feature = "bedrock")]
     pub bedrock: Option<BedrockSettings>,
     pub openai_compat: Option<OpenAiCompatSettings>,
+}
+
+fn default_response_cache_ttl_days() -> u64 {
+    7
 }
 
 fn default_api_timeout_secs() -> u64 {

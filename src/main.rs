@@ -545,7 +545,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Start Reviewer Service
-    let reviewer = Reviewer::new(db.clone(), settings.clone());
+    let reviewer = Reviewer::new(db.clone(), settings.clone()).await;
     tokio::spawn(async move {
         reviewer.start().await;
     });
