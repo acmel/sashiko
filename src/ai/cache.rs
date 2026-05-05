@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info};
 
@@ -11,6 +12,8 @@ pub struct CachingAiProvider {
     inner: Arc<dyn AiProvider>,
     conn: libsql::Connection,
     session_start: i64,
+    tokens_saved_this: AtomicU64,
+    tokens_saved_prev: AtomicU64,
 }
 
 impl CachingAiProvider {
@@ -73,6 +76,8 @@ impl CachingAiProvider {
             inner,
             conn,
             session_start,
+            tokens_saved_this: AtomicU64::new(0),
+            tokens_saved_prev: AtomicU64::new(0),
         })
     }
 
@@ -108,14 +113,22 @@ impl AiProvider for CachingAiProvider {
             let tokens_saved: i64 = row.get(1)?;
             let created_at: i64 = row.get(2)?;
             if let Ok(mut resp) = serde_json::from_str::<AiResponse>(&response_json) {
-                let origin = if created_at >= self.session_start {
-                    "this session"
+                let (origin, total) = if created_at >= self.session_start {
+                    let t = self
+                        .tokens_saved_this
+                        .fetch_add(tokens_saved as u64, Ordering::Relaxed)
+                        + tokens_saved as u64;
+                    ("this session", t)
                 } else {
-                    "previous session"
+                    let t = self
+                        .tokens_saved_prev
+                        .fetch_add(tokens_saved as u64, Ordering::Relaxed)
+                        + tokens_saved as u64;
+                    ("previous session", t)
                 };
                 info!(
-                    "Cache hit [{}] ({}) — {} tokens saved",
-                    hash_prefix, origin, tokens_saved
+                    "Cache hit [{}] ({}) — {} tokens saved (total {}: {})",
+                    hash_prefix, origin, tokens_saved, origin, total
                 );
                 if let Some(ref mut usage) = resp.usage {
                     usage.cached_tokens =
