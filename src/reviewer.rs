@@ -683,6 +683,24 @@ impl Reviewer {
                 .update_patchset_status(patchset_id, ReviewStatus::FailedToApply.as_str())
                 .await;
         }
+
+        if let Some(stats) = ctx.provider.cache_stats() {
+            use crate::ai::cache::fmt_thousands;
+            let total_hits = stats.hits_this_session + stats.hits_prev_session;
+            let total_tokens = stats.tokens_saved_this_session + stats.tokens_saved_prev_session;
+            if total_hits > 0 {
+                info!(
+                    "Patchset {} cache summary — {} hits ({} this session, {} previous), {} tokens saved ({} this session, {} previous)",
+                    patchset_id,
+                    fmt_thousands(total_hits),
+                    fmt_thousands(stats.hits_this_session),
+                    fmt_thousands(stats.hits_prev_session),
+                    fmt_thousands(total_tokens),
+                    fmt_thousands(stats.tokens_saved_this_session),
+                    fmt_thousands(stats.tokens_saved_prev_session),
+                );
+            }
+        }
     }
 
     async fn prepare_baseline_worktree(

@@ -6,9 +6,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info};
 
-use super::{AiProvider, AiRequest, AiResponse, ProviderCapabilities};
+use super::{AiProvider, AiRequest, AiResponse, CacheStats, ProviderCapabilities};
 
-fn fmt_thousands(n: u64) -> String {
+pub fn fmt_thousands(n: u64) -> String {
     let s = n.to_string();
     let mut result = String::with_capacity(s.len() + s.len() / 3);
     for (i, c) in s.chars().enumerate() {
@@ -24,6 +24,8 @@ pub struct CachingAiProvider {
     inner: Arc<dyn AiProvider>,
     conn: libsql::Connection,
     session_start: i64,
+    hits_this: AtomicU64,
+    hits_prev: AtomicU64,
     tokens_saved_this: AtomicU64,
     tokens_saved_prev: AtomicU64,
 }
@@ -88,6 +90,8 @@ impl CachingAiProvider {
             inner,
             conn,
             session_start,
+            hits_this: AtomicU64::new(0),
+            hits_prev: AtomicU64::new(0),
             tokens_saved_this: AtomicU64::new(0),
             tokens_saved_prev: AtomicU64::new(0),
         })
@@ -126,12 +130,14 @@ impl AiProvider for CachingAiProvider {
             let created_at: i64 = row.get(2)?;
             if let Ok(mut resp) = serde_json::from_str::<AiResponse>(&response_json) {
                 let (origin, total) = if created_at >= self.session_start {
+                    self.hits_this.fetch_add(1, Ordering::Relaxed);
                     let t = self
                         .tokens_saved_this
                         .fetch_add(tokens_saved as u64, Ordering::Relaxed)
                         + tokens_saved as u64;
                     ("this session", t)
                 } else {
+                    self.hits_prev.fetch_add(1, Ordering::Relaxed);
                     let t = self
                         .tokens_saved_prev
                         .fetch_add(tokens_saved as u64, Ordering::Relaxed)
@@ -196,5 +202,14 @@ impl AiProvider for CachingAiProvider {
 
     fn get_capabilities(&self) -> ProviderCapabilities {
         self.inner.get_capabilities()
+    }
+
+    fn cache_stats(&self) -> Option<CacheStats> {
+        Some(CacheStats {
+            hits_this_session: self.hits_this.load(Ordering::Relaxed),
+            hits_prev_session: self.hits_prev.load(Ordering::Relaxed),
+            tokens_saved_this_session: self.tokens_saved_this.load(Ordering::Relaxed),
+            tokens_saved_prev_session: self.tokens_saved_prev.load(Ordering::Relaxed),
+        })
     }
 }

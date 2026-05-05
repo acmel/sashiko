@@ -165,6 +165,15 @@ pub struct ProviderCapabilities {
     pub context_window_size: usize,
 }
 
+/// Cache statistics returned by providers that support local response caching.
+#[derive(Debug, Clone, Default)]
+pub struct CacheStats {
+    pub hits_this_session: u64,
+    pub hits_prev_session: u64,
+    pub tokens_saved_this_session: u64,
+    pub tokens_saved_prev_session: u64,
+}
+
 /// Trait defining the standard interface for all AI providers in Sashiko.
 #[async_trait]
 pub trait AiProvider: Send + Sync {
@@ -176,6 +185,11 @@ pub trait AiProvider: Send + Sync {
 
     /// Returns the capabilities and constraints of this provider.
     fn get_capabilities(&self) -> ProviderCapabilities;
+
+    /// Returns cache statistics, if the provider supports local response caching.
+    fn cache_stats(&self) -> Option<CacheStats> {
+        None
+    }
 }
 
 /// Creates an AI provider, optionally wrapping it with a local response cache.
