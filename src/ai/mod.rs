@@ -178,6 +178,27 @@ pub trait AiProvider: Send + Sync {
     fn get_capabilities(&self) -> ProviderCapabilities;
 }
 
+/// Creates an AI provider, optionally wrapping it with a local response cache.
+pub async fn create_provider_cached(
+    settings: &Settings,
+    enable_cache: bool,
+    cache_ttl_days: u64,
+) -> Result<Arc<dyn AiProvider>> {
+    let provider = create_provider(settings)?;
+    if enable_cache {
+        let cache_path = std::path::Path::new(&settings.database.url)
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("response_cache.db");
+        let cached =
+            cache::CachingAiProvider::new(provider, &cache_path.to_string_lossy(), cache_ttl_days)
+                .await?;
+        Ok(Arc::new(cached))
+    } else {
+        Ok(provider)
+    }
+}
+
 /// Creates an AI provider based on the application settings.
 pub fn create_provider(settings: &Settings) -> Result<Arc<dyn AiProvider>> {
     match settings.ai.provider.to_lowercase().as_str() {
@@ -282,6 +303,7 @@ pub fn create_provider(settings: &Settings) -> Result<Arc<dyn AiProvider>> {
 }
 #[cfg(feature = "bedrock")]
 pub mod bedrock;
+pub mod cache;
 pub mod claude;
 pub mod claude_cli;
 pub mod codex_cli;
