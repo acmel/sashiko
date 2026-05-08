@@ -214,7 +214,13 @@ async fn main() -> Result<()> {
         .set(match cli.color {
             ColorMode::Always => ColorChoice::Always,
             ColorMode::Never => ColorChoice::Never,
-            ColorMode::Auto => ColorChoice::Auto,
+            ColorMode::Auto => {
+                if std::io::stdout().is_terminal() {
+                    ColorChoice::Auto
+                } else {
+                    ColorChoice::Never
+                }
+            }
         })
         .unwrap();
 
