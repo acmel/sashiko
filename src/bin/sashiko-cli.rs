@@ -1848,11 +1848,9 @@ fn print_findings_summary(label: &str, findings: &[Value], inline_review: Option
 fn print_colored(color: Color, text: &str) {
     let choice = COLOR_CHOICE.get().copied().unwrap_or(ColorChoice::Auto);
     let mut stdout = StandardStream::stdout(choice);
-    stdout
-        .set_color(ColorSpec::new().set_fg(Some(color)))
-        .unwrap();
-    write!(&mut stdout, "{}", text).unwrap();
-    stdout.reset().unwrap();
+    let _ = stdout.set_color(ColorSpec::new().set_fg(Some(color)));
+    let _ = write!(&mut stdout, "{}", text);
+    let _ = stdout.reset();
 }
 
 fn format_timestamp(ts: i64) -> String {
