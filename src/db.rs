@@ -301,6 +301,7 @@ impl Database {
         msg_id: &str,
         page: Option<u32>,
         limit: Option<u32>,
+        pricing: Option<&crate::settings::AiPricingOverride>,
     ) -> Result<Option<serde_json::Value>> {
         // 1. Try to find a patchset where this is the cover letter
         let mut rows = self
@@ -312,7 +313,7 @@ impl Database {
             .await?;
         if let Ok(Some(row)) = rows.next().await {
             let id: i64 = row.get(0)?;
-            return self.get_patchset_details(id, page, limit).await;
+            return self.get_patchset_details(id, page, limit, pricing).await;
         }
 
         // 2. Fallback: Find a patchset that contains this message as a patch
@@ -325,7 +326,7 @@ impl Database {
             .await?;
         if let Ok(Some(row)) = rows.next().await {
             let id: i64 = row.get(0)?;
-            return self.get_patchset_details(id, page, limit).await;
+            return self.get_patchset_details(id, page, limit, pricing).await;
         }
 
         Ok(None)
@@ -2635,6 +2636,7 @@ impl Database {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn fetch_reviews_json(
         &self,
         patchset_id: i64,
@@ -2643,6 +2645,7 @@ impl Database {
         provider: &Option<String>,
         prompts_git_hash: &Option<String>,
         baseline: &Option<serde_json::Value>,
+        pricing: Option<&crate::settings::AiPricingOverride>,
     ) -> Result<Vec<serde_json::Value>> {
         let mut reviews = Vec::new();
         let mut in_clause = patch_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
@@ -2673,7 +2676,7 @@ impl Database {
             let tokens_out = r.get::<Option<u32>>(8).ok().flatten().unwrap_or(0) as u64;
             let tokens_cached = r.get::<Option<u32>>(11).ok().flatten().unwrap_or(0) as u64;
             let estimated_cost = model_name.as_deref().and_then(|m| {
-                let (inp, out, cached) = crate::ai::model_pricing(m)?;
+                let (inp, out, cached) = crate::ai::model_pricing(m, pricing)?;
                 Some(crate::ai::estimate_cost(
                     tokens_in,
                     tokens_out,
@@ -2716,6 +2719,7 @@ impl Database {
         id: i64,
         page: Option<u32>,
         limit: Option<u32>,
+        pricing: Option<&crate::settings::AiPricingOverride>,
     ) -> Result<Option<serde_json::Value>> {
         let mut rows = self
             .conn
@@ -2862,6 +2866,7 @@ impl Database {
                     &provider,
                     &prompts_git_hash,
                     &baseline,
+                    pricing,
                 )
                 .await?;
 
@@ -2927,6 +2932,7 @@ impl Database {
         id: i64,
         page: Option<u32>,
         limit: Option<u32>,
+        pricing: Option<&crate::settings::AiPricingOverride>,
     ) -> Result<Option<serde_json::Value>> {
         let mut rows = self
             .conn
@@ -3069,6 +3075,7 @@ impl Database {
                     &provider,
                     &prompts_git_hash,
                     &baseline,
+                    pricing,
                 )
                 .await?;
 
@@ -3133,6 +3140,7 @@ impl Database {
         msg_id: &str,
         page: Option<u32>,
         limit: Option<u32>,
+        pricing: Option<&crate::settings::AiPricingOverride>,
     ) -> Result<Option<serde_json::Value>> {
         let mut rows = self
             .conn
@@ -3143,7 +3151,7 @@ impl Database {
             .await?;
         if let Ok(Some(row)) = rows.next().await {
             let id: i64 = row.get(0)?;
-            return self.get_patchset_summary(id, page, limit).await;
+            return self.get_patchset_summary(id, page, limit, pricing).await;
         }
 
         let mut rows = self
@@ -3155,7 +3163,7 @@ impl Database {
             .await?;
         if let Ok(Some(row)) = rows.next().await {
             let id: i64 = row.get(0)?;
-            return self.get_patchset_summary(id, page, limit).await;
+            return self.get_patchset_summary(id, page, limit, pricing).await;
         }
 
         Ok(None)
@@ -4382,7 +4390,7 @@ mod tests {
         let patchsets = db.get_patchsets(10, 0, None, None).await.unwrap();
         assert_eq!(patchsets[0].status.as_deref(), Some("Embargoed"));
         let details = db
-            .get_patchset_details(ps_id, None, None)
+            .get_patchset_details(ps_id, None, None, None)
             .await
             .unwrap()
             .unwrap();
@@ -4402,7 +4410,7 @@ mod tests {
         let patchsets = db.get_patchsets(10, 0, None, None).await.unwrap();
         assert_eq!(patchsets[0].status.as_deref(), Some("Reviewed"));
         let details = db
-            .get_patchset_details(ps_id, None, None)
+            .get_patchset_details(ps_id, None, None, None)
             .await
             .unwrap()
             .unwrap();
@@ -5638,13 +5646,13 @@ mod tests {
         db.create_patch(ps2, "msg2", 2, "").await.unwrap();
 
         let details1 = db
-            .get_patchset_details(ps1, None, None)
+            .get_patchset_details(ps1, None, None, None)
             .await
             .unwrap()
             .unwrap();
         assert_eq!(details1["received_parts"], 1);
         let details2 = db
-            .get_patchset_details(ps2, None, None)
+            .get_patchset_details(ps2, None, None, None)
             .await
             .unwrap()
             .unwrap();
@@ -5702,7 +5710,7 @@ mod tests {
         db.create_patch(ps1, msg_id, 1, "diff").await.unwrap();
 
         let details = db
-            .get_patchset_details(ps1, None, None)
+            .get_patchset_details(ps1, None, None, None)
             .await
             .unwrap()
             .unwrap();

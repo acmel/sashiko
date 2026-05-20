@@ -275,6 +275,14 @@ pub struct AiSettings {
     pub kiro_cli: Option<KiroCliSettings>,
     pub claude_cli: Option<ClaudeCliSettings>,
     pub devin_cli: Option<DevinCliSettings>,
+    pub pricing: Option<AiPricingOverride>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AiPricingOverride {
+    pub input_cost_per_mtok: Option<f64>,
+    pub output_cost_per_mtok: Option<f64>,
+    pub cached_cost_per_mtok: Option<f64>,
 }
 
 fn default_response_cache_ttl_days() -> u64 {

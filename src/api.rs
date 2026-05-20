@@ -134,6 +134,7 @@ pub struct AppState {
     pub cache_path: String,
     pub cache_max_entries: u64,
     pub cache_max_size_mb: u64,
+    pub pricing_override: Option<crate::settings::AiPricingOverride>,
     cache_overview_cache: AsyncCache<serde_json::Value>,
     stats_timeline_cache: AsyncMapCache<Option<i64>, serde_json::Value>,
     stats_reviews_cache: AsyncCache<serde_json::Value>,
@@ -243,6 +244,7 @@ pub struct SubmitResponse {
 ///
 /// Extracted from [`run_server`] so that integration tests can construct the
 /// router independently (e.g. bind to port 0 for random-port testing).
+#[allow(clippy::too_many_arguments)]
 pub fn build_router(
     db: Arc<Database>,
     sender: mpsc::Sender<Event>,
@@ -256,6 +258,7 @@ pub fn build_router(
     cache_path: String,
     cache_max_entries: u64,
     cache_max_size_mb: u64,
+    pricing_override: Option<crate::settings::AiPricingOverride>,
 ) -> Router {
     let state = Arc::new(AppState {
         db,
@@ -270,6 +273,7 @@ pub fn build_router(
         cache_path,
         cache_max_entries,
         cache_max_size_mb,
+        pricing_override,
         cache_overview_cache: AsyncCache::new(Duration::from_secs(60)),
         stats_timeline_cache: AsyncMapCache::new(Duration::from_secs(60)),
         stats_reviews_cache: AsyncCache::new(Duration::from_secs(60)),
@@ -305,6 +309,7 @@ pub fn build_router(
         .with_state(state)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_server(
     settings: ServerSettings,
     db: Arc<Database>,
@@ -318,6 +323,7 @@ pub async fn run_server(
     cache_path: String,
     cache_max_entries: u64,
     cache_max_size_mb: u64,
+    pricing_override: Option<crate::settings::AiPricingOverride>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let app = build_router(
         db,
@@ -332,6 +338,7 @@ pub async fn run_server(
         cache_path,
         cache_max_entries,
         cache_max_size_mb,
+        pricing_override,
     );
 
     let bind_addr = format!("{}:{}", settings.host, settings.port);
@@ -700,17 +707,18 @@ async fn get_patchset(
     State(state): State<Arc<AppState>>,
     Query(query): Query<PatchQuery>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    let pricing = state.pricing_override.as_ref();
     let result = if let Ok(id_val) = query.id.parse::<i64>() {
         info!("Fetching details for patchset id: {}", id_val);
         state
             .db
-            .get_patchset_details(id_val, query.page, query.per_page)
+            .get_patchset_details(id_val, query.page, query.per_page, pricing)
             .await
     } else {
         info!("Fetching details for patchset msgid: {}", query.id);
         state
             .db
-            .get_patchset_details_by_msgid(&query.id, query.page, query.per_page)
+            .get_patchset_details_by_msgid(&query.id, query.page, query.per_page, pricing)
             .await
     };
 
@@ -774,17 +782,18 @@ async fn get_patchset_summary(
     State(state): State<Arc<AppState>>,
     Query(query): Query<PatchQuery>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    let pricing = state.pricing_override.as_ref();
     let result = if let Ok(id_val) = query.id.parse::<i64>() {
         info!("Fetching summary for patchset id: {}", id_val);
         state
             .db
-            .get_patchset_summary(id_val, query.page, query.per_page)
+            .get_patchset_summary(id_val, query.page, query.per_page, pricing)
             .await
     } else {
         info!("Fetching summary for patchset msgid: {}", query.id);
         state
             .db
-            .get_patchset_summary_by_msgid(&query.id, query.page, query.per_page)
+            .get_patchset_summary_by_msgid(&query.id, query.page, query.per_page, pricing)
             .await
     };
 

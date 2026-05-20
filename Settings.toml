@@ -43,6 +43,14 @@ temperature = 1.0
 # Requires response_cache = true to produce meaningful data.
 # show_cache_stats = false
 
+# Override built-in model pricing for cost estimates (USD per million tokens).
+# When set, these values take precedence over the built-in defaults for the
+# configured model.  Useful when provider pricing changes or for custom models.
+# [ai.pricing]
+# input_cost_per_mtok = 3.0
+# output_cost_per_mtok = 15.0
+# cached_cost_per_mtok = 0.30
+
 # To use Claude API directly:
 # provider = "claude"
 # model = "claude-sonnet-4-6"

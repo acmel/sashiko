@@ -197,7 +197,7 @@ async fn test_cache_stats_in_patchset_summary() {
     .await
     .unwrap();
 
-    let result = db.get_patchset_summary(1, None, None).await.unwrap();
+    let result = db.get_patchset_summary(1, None, None, None).await.unwrap();
     assert!(result.is_some(), "patchset summary should exist");
     let data = result.unwrap();
 

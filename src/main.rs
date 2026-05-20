@@ -526,6 +526,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let cache_max_entries = settings.ai.response_cache_max_entries;
     let cache_max_size_mb = settings.ai.response_cache_max_size_mb;
+    let pricing_override = settings.ai.pricing.clone();
     tokio::spawn(async move {
         if let Err(e) = sashiko::api::run_server(
             api_settings,
@@ -540,6 +541,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             cache_path_str,
             cache_max_entries,
             cache_max_size_mb,
+            pricing_override,
         )
         .await
         {

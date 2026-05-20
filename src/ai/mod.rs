@@ -336,9 +336,12 @@ pub fn fmt_cost(cost: f64) -> String {
     }
 }
 
-pub fn model_pricing(model: &str) -> Option<(f64, f64, f64)> {
+pub fn model_pricing(
+    model: &str,
+    overrides: Option<&crate::settings::AiPricingOverride>,
+) -> Option<(f64, f64, f64)> {
     let m = model.to_lowercase();
-    if m.contains("opus") {
+    let builtin = if m.contains("opus") {
         Some((15.0, 75.0, 1.50))
     } else if m.contains("sonnet") {
         Some((3.0, 15.0, 0.30))
@@ -354,6 +357,21 @@ pub fn model_pricing(model: &str) -> Option<(f64, f64, f64)> {
         Some((2.50, 10.0, 1.25))
     } else {
         None
+    };
+    match (builtin, overrides) {
+        (Some((inp, out, cached)), Some(ov)) => Some((
+            ov.input_cost_per_mtok.unwrap_or(inp),
+            ov.output_cost_per_mtok.unwrap_or(out),
+            ov.cached_cost_per_mtok.unwrap_or(cached),
+        )),
+        (Some(b), None) => Some(b),
+        (None, Some(ov)) => {
+            let inp = ov.input_cost_per_mtok?;
+            let out = ov.output_cost_per_mtok?;
+            let cached = ov.cached_cost_per_mtok?;
+            Some((inp, out, cached))
+        }
+        (None, None) => None,
     }
 }
 
@@ -1191,23 +1209,59 @@ mod tests {
 
     #[test]
     fn test_model_pricing() {
-        assert!(model_pricing("gemini-2.5-pro-preview").is_some());
-        assert!(model_pricing("gemini-3.1-pro-preview").is_some());
-        assert!(model_pricing("gemini-2.5-flash").is_some());
-        assert!(model_pricing("claude-sonnet-4-6").is_some());
-        assert!(model_pricing("claude-opus-4").is_some());
-        assert!(model_pricing("claude-haiku-4-5").is_some());
-        assert!(model_pricing("gpt-4o").is_some());
-        assert!(model_pricing("gpt-4o-mini").is_some());
-        assert!(model_pricing("unknown-model").is_none());
+        assert!(model_pricing("gemini-2.5-pro-preview", None).is_some());
+        assert!(model_pricing("gemini-3.1-pro-preview", None).is_some());
+        assert!(model_pricing("gemini-2.5-flash", None).is_some());
+        assert!(model_pricing("claude-sonnet-4-6", None).is_some());
+        assert!(model_pricing("claude-opus-4", None).is_some());
+        assert!(model_pricing("claude-haiku-4-5", None).is_some());
+        assert!(model_pricing("gpt-4o", None).is_some());
+        assert!(model_pricing("gpt-4o-mini", None).is_some());
+        assert!(model_pricing("unknown-model", None).is_none());
 
-        let (inp, out, _) = model_pricing("gpt-4o-mini").unwrap();
+        let (inp, out, _) = model_pricing("gpt-4o-mini", None).unwrap();
         assert_eq!(inp, 0.15);
         assert_eq!(out, 0.60);
 
         // gpt-4o-mini should NOT match gpt-4o pricing
-        let (inp_mini, _, _) = model_pricing("gpt-4o-mini").unwrap();
-        let (inp_4o, _, _) = model_pricing("gpt-4o").unwrap();
+        let (inp_mini, _, _) = model_pricing("gpt-4o-mini", None).unwrap();
+        let (inp_4o, _, _) = model_pricing("gpt-4o", None).unwrap();
         assert_ne!(inp_mini, inp_4o);
+    }
+
+    #[test]
+    fn test_model_pricing_override() {
+        use crate::settings::AiPricingOverride;
+
+        // Partial override: only input rate
+        let partial = AiPricingOverride {
+            input_cost_per_mtok: Some(99.0),
+            output_cost_per_mtok: None,
+            cached_cost_per_mtok: None,
+        };
+        let (inp, out, cached) = model_pricing("claude-sonnet-4-6", Some(&partial)).unwrap();
+        assert_eq!(inp, 99.0);
+        assert_eq!(out, 15.0); // builtin fallback
+        assert_eq!(cached, 0.30); // builtin fallback
+
+        // Full override on known model
+        let full = AiPricingOverride {
+            input_cost_per_mtok: Some(1.0),
+            output_cost_per_mtok: Some(2.0),
+            cached_cost_per_mtok: Some(0.5),
+        };
+        let (inp, out, cached) = model_pricing("claude-opus-4", Some(&full)).unwrap();
+        assert_eq!(inp, 1.0);
+        assert_eq!(out, 2.0);
+        assert_eq!(cached, 0.5);
+
+        // Full override on unknown model
+        let (inp, out, cached) = model_pricing("custom-local-model", Some(&full)).unwrap();
+        assert_eq!(inp, 1.0);
+        assert_eq!(out, 2.0);
+        assert_eq!(cached, 0.5);
+
+        // Partial override on unknown model — not enough info
+        assert!(model_pricing("custom-local-model", Some(&partial)).is_none());
     }
 }
