@@ -302,6 +302,59 @@ pub struct ProviderCapabilities {
     pub model_name: String,
     /// Maximum number of tokens allowed in the context window.
     pub context_window_size: usize,
+    /// Cost per 1M input tokens in USD (None if unknown).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_cost_per_mtok: Option<f64>,
+    /// Cost per 1M output tokens in USD (None if unknown).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_cost_per_mtok: Option<f64>,
+    /// Cost per 1M cached input tokens in USD (None if unknown).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_cost_per_mtok: Option<f64>,
+}
+
+pub fn estimate_cost(
+    tokens_in: u64,
+    tokens_out: u64,
+    tokens_cached: u64,
+    input_cost_per_mtok: f64,
+    output_cost_per_mtok: f64,
+    cached_cost_per_mtok: f64,
+) -> f64 {
+    let uncached_in = tokens_in.saturating_sub(tokens_cached);
+    (uncached_in as f64 * input_cost_per_mtok
+        + tokens_cached as f64 * cached_cost_per_mtok
+        + tokens_out as f64 * output_cost_per_mtok)
+        / 1_000_000.0
+}
+
+pub fn fmt_cost(cost: f64) -> String {
+    if cost < 0.01 {
+        format!("${:.4}", cost)
+    } else {
+        format!("${:.2}", cost)
+    }
+}
+
+pub fn model_pricing(model: &str) -> Option<(f64, f64, f64)> {
+    let m = model.to_lowercase();
+    if m.contains("opus") {
+        Some((15.0, 75.0, 1.50))
+    } else if m.contains("sonnet") {
+        Some((3.0, 15.0, 0.30))
+    } else if m.contains("haiku") {
+        Some((0.80, 4.0, 0.08))
+    } else if m.contains("2.5-pro") || m.contains("3.1-pro") {
+        Some((1.25, 10.0, 0.31))
+    } else if m.contains("2.5-flash") || m.contains("3.1-flash") {
+        Some((0.15, 0.60, 0.04))
+    } else if m.contains("gpt-4o-mini") {
+        Some((0.15, 0.60, 0.075))
+    } else if m.contains("gpt-4o") {
+        Some((2.50, 10.0, 1.25))
+    } else {
+        None
+    }
 }
 
 /// Cache statistics returned by providers that support local response caching.
@@ -1115,5 +1168,46 @@ mod tests {
         assert!(result.is_err());
 
         Ok(())
+    }
+
+    #[test]
+    fn test_estimate_cost() {
+        let cost = estimate_cost(1_000_000, 500_000, 200_000, 3.0, 15.0, 0.30);
+        // uncached_in = 800_000, cached = 200_000
+        // (800_000 * 3.0 + 200_000 * 0.30 + 500_000 * 15.0) / 1_000_000
+        let expected = (800_000.0 * 3.0 + 200_000.0 * 0.30 + 500_000.0 * 15.0) / 1_000_000.0;
+        assert!((cost - expected).abs() < 0.0001);
+
+        assert_eq!(estimate_cost(0, 0, 0, 3.0, 15.0, 0.30), 0.0);
+    }
+
+    #[test]
+    fn test_fmt_cost() {
+        assert_eq!(fmt_cost(1.50), "$1.50");
+        assert_eq!(fmt_cost(0.05), "$0.05");
+        assert_eq!(fmt_cost(0.001), "$0.0010");
+        assert_eq!(fmt_cost(0.0), "$0.0000");
+    }
+
+    #[test]
+    fn test_model_pricing() {
+        assert!(model_pricing("gemini-2.5-pro-preview").is_some());
+        assert!(model_pricing("gemini-3.1-pro-preview").is_some());
+        assert!(model_pricing("gemini-2.5-flash").is_some());
+        assert!(model_pricing("claude-sonnet-4-6").is_some());
+        assert!(model_pricing("claude-opus-4").is_some());
+        assert!(model_pricing("claude-haiku-4-5").is_some());
+        assert!(model_pricing("gpt-4o").is_some());
+        assert!(model_pricing("gpt-4o-mini").is_some());
+        assert!(model_pricing("unknown-model").is_none());
+
+        let (inp, out, _) = model_pricing("gpt-4o-mini").unwrap();
+        assert_eq!(inp, 0.15);
+        assert_eq!(out, 0.60);
+
+        // gpt-4o-mini should NOT match gpt-4o pricing
+        let (inp_mini, _, _) = model_pricing("gpt-4o-mini").unwrap();
+        let (inp_4o, _, _) = model_pricing("gpt-4o").unwrap();
+        assert_ne!(inp_mini, inp_4o);
     }
 }

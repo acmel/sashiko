@@ -545,10 +545,25 @@ impl AiProvider for OpenAiCompatClient {
     }
 
     fn get_capabilities(&self) -> ProviderCapabilities {
+        let (input, output, cached) = openai_pricing(&self.model);
         ProviderCapabilities {
             model_name: self.model.clone(),
             context_window_size: self.context_window_size,
+            input_cost_per_mtok: input,
+            output_cost_per_mtok: output,
+            cached_cost_per_mtok: cached,
         }
+    }
+}
+
+fn openai_pricing(model: &str) -> (Option<f64>, Option<f64>, Option<f64>) {
+    let m = model.to_lowercase();
+    if m.contains("gpt-4o-mini") {
+        (Some(0.15), Some(0.60), Some(0.075))
+    } else if m.contains("gpt-4o") {
+        (Some(2.50), Some(10.0), Some(1.25))
+    } else {
+        (None, None, None)
     }
 }
 

@@ -2669,6 +2669,20 @@ impl Database {
         let mut rev_rows = self.conn.query(&query_str, params).await?;
 
         while let Ok(Some(r)) = rev_rows.next().await {
+            let tokens_in = r.get::<Option<u32>>(7).ok().flatten().unwrap_or(0) as u64;
+            let tokens_out = r.get::<Option<u32>>(8).ok().flatten().unwrap_or(0) as u64;
+            let tokens_cached = r.get::<Option<u32>>(11).ok().flatten().unwrap_or(0) as u64;
+            let estimated_cost = model_name.as_deref().and_then(|m| {
+                let (inp, out, cached) = crate::ai::model_pricing(m)?;
+                Some(crate::ai::estimate_cost(
+                    tokens_in,
+                    tokens_out,
+                    tokens_cached,
+                    inp,
+                    out,
+                    cached,
+                ))
+            });
             reviews.push(serde_json::json!({
                 "summary": r.get::<Option<String>>(0).ok(),
                 "created_at": r.get::<Option<i64>>(1).ok(),
@@ -2677,15 +2691,16 @@ impl Database {
                 "status": r.get::<Option<String>>(4).ok(),
                 "inline_review": r.get::<Option<String>>(5).ok(),
                 "logs": r.get::<Option<String>>(6).ok(),
-                "tokens_in": r.get::<Option<u32>>(7).ok(),
-                "tokens_out": r.get::<Option<u32>>(8).ok(),
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
                 "patch_id": r.get::<Option<i64>>(9).ok(),
                 "id": r.get::<i64>(10).ok(),
-                "tokens_cached": r.get::<Option<u32>>(11).ok(),
+                "tokens_cached": tokens_cached,
                 "cache_hits": r.get::<Option<i64>>(12).ok(),
                 "cache_misses": r.get::<Option<i64>>(13).ok(),
                 "cache_tokens_saved": r.get::<Option<i64>>(14).ok(),
                 "cache_tokens_stored": r.get::<Option<i64>>(15).ok(),
+                "estimated_cost_usd": estimated_cost,
                 "model": model_name.clone(),
                 "provider": provider.clone(),
                 "prompts_hash": prompts_git_hash.clone(),

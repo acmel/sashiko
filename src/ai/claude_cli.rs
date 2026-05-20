@@ -151,6 +151,9 @@ impl AiProvider for ClaudeCliProvider {
         ProviderCapabilities {
             model_name: self.model.clone(),
             context_window_size: context_window_for_model(&self.model),
+            input_cost_per_mtok: None,
+            output_cost_per_mtok: None,
+            cached_cost_per_mtok: None,
         }
     }
 }

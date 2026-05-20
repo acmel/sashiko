@@ -144,6 +144,9 @@ impl AiProvider for CodexCliProvider {
         ProviderCapabilities {
             model_name: self.model.clone(),
             context_window_size: 200_000,
+            input_cost_per_mtok: None,
+            output_cost_per_mtok: None,
+            cached_cost_per_mtok: None,
         }
     }
 }

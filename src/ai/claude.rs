@@ -626,6 +626,19 @@ pub fn estimate_tokens_generic(request: &AiRequest) -> usize {
     total
 }
 
+fn claude_pricing(model: &str) -> (Option<f64>, Option<f64>, Option<f64>) {
+    let m = model.to_lowercase();
+    if m.contains("opus") {
+        (Some(15.0), Some(75.0), Some(1.50))
+    } else if m.contains("sonnet") {
+        (Some(3.0), Some(15.0), Some(0.30))
+    } else if m.contains("haiku") {
+        (Some(0.80), Some(4.0), Some(0.08))
+    } else {
+        (None, None, None)
+    }
+}
+
 // --- AiProvider Implementation ---
 
 #[async_trait]
@@ -656,9 +669,13 @@ impl AiProvider for ClaudeClient {
     }
 
     fn get_capabilities(&self) -> ProviderCapabilities {
+        let (input, output, cached) = claude_pricing(&self.model);
         ProviderCapabilities {
             model_name: self.model.clone(),
-            context_window_size: 200_000, // Claude 3.5 Sonnet context window
+            context_window_size: 200_000,
+            input_cost_per_mtok: input,
+            output_cost_per_mtok: output,
+            cached_cost_per_mtok: cached,
         }
     }
 
@@ -732,6 +749,9 @@ impl AiProvider for StdioClaudeClient {
         ProviderCapabilities {
             model_name: "stdio-claude".to_string(),
             context_window_size: 200_000,
+            input_cost_per_mtok: None,
+            output_cost_per_mtok: None,
+            cached_cost_per_mtok: None,
         }
     }
 }

@@ -871,6 +871,8 @@ async fn handle_show(
                     let mut total_cache_misses: u64 = 0;
                     let mut total_cache_tokens_saved: u64 = 0;
                     let mut total_cache_tokens_stored: u64 = 0;
+                    let mut total_cost: f64 = 0.0;
+                    let mut has_cost = false;
 
                     println!("\nPatches ({}):", patches.len());
                     for patch in &patches {
@@ -899,6 +901,13 @@ async fn handle_show(
                                 total_cache_tokens_saved += saved;
                                 total_cache_tokens_stored += stored;
 
+                                if let Some(cost) =
+                                    rev.get("estimated_cost_usd").and_then(|v| v.as_f64())
+                                {
+                                    total_cost += cost;
+                                    has_cost = true;
+                                }
+
                                 let total_requests = hits + misses;
                                 if total_requests > 0 {
                                     let mut s =
@@ -908,6 +917,11 @@ async fn handle_show(
                                             ", {} tokens saved",
                                             fmt_tokens(saved)
                                         ));
+                                    }
+                                    if let Some(cost) =
+                                        rev.get("estimated_cost_usd").and_then(|v| v.as_f64())
+                                    {
+                                        s.push_str(&format!(", {}", sashiko::ai::fmt_cost(cost)));
                                     }
                                     s.push('}');
                                     s
@@ -939,6 +953,9 @@ async fn handle_show(
                                 print!(", {} tokens stored", fmt_tokens(total_cache_tokens_stored));
                             }
                             println!();
+                        }
+                        if has_cost {
+                            println!("  Cost:    {}", sashiko::ai::fmt_cost(total_cost));
                         }
                     }
 

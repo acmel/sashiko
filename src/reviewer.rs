@@ -2522,6 +2522,9 @@ mod tests {
             ProviderCapabilities {
                 model_name: "mock".to_string(),
                 context_window_size: 1000,
+                input_cost_per_mtok: None,
+                output_cost_per_mtok: None,
+                cached_cost_per_mtok: None,
             }
         }
     }
@@ -2542,6 +2545,9 @@ mod tests {
             ProviderCapabilities {
                 model_name: "mock".to_string(),
                 context_window_size: 1000,
+                input_cost_per_mtok: None,
+                output_cost_per_mtok: None,
+                cached_cost_per_mtok: None,
             }
         }
     }
@@ -2579,6 +2585,9 @@ mod tests {
             ProviderCapabilities {
                 model_name: "mock".to_string(),
                 context_window_size: 1000,
+                input_cost_per_mtok: None,
+                output_cost_per_mtok: None,
+                cached_cost_per_mtok: None,
             }
         }
     }
@@ -3034,6 +3043,9 @@ fi
             ProviderCapabilities {
                 model_name: "mock".to_string(),
                 context_window_size: 1000,
+                input_cost_per_mtok: None,
+                output_cost_per_mtok: None,
+                cached_cost_per_mtok: None,
             }
         }
     }

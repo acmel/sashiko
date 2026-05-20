@@ -495,6 +495,9 @@ impl AiProvider for StdioGeminiClient {
         ProviderCapabilities {
             model_name: "stdio-gemini".to_string(),
             context_window_size: 1_000_000,
+            input_cost_per_mtok: None,
+            output_cost_per_mtok: None,
+            cached_cost_per_mtok: None,
         }
     }
 }
@@ -798,6 +801,17 @@ fn estimate_tokens_generic(request: &AiRequest) -> usize {
     total
 }
 
+fn gemini_pricing(model: &str) -> (Option<f64>, Option<f64>, Option<f64>) {
+    let m = model.to_lowercase();
+    if m.contains("2.5-pro") || m.contains("3.1-pro") {
+        (Some(1.25), Some(10.0), Some(0.31))
+    } else if m.contains("2.5-flash") || m.contains("3.1-flash") {
+        (Some(0.15), Some(0.60), Some(0.04))
+    } else {
+        (None, None, None)
+    }
+}
+
 #[async_trait]
 impl AiProvider for GeminiClient {
     async fn generate_content(&self, request: AiRequest) -> Result<AiResponse> {
@@ -811,9 +825,13 @@ impl AiProvider for GeminiClient {
     }
 
     fn get_capabilities(&self) -> ProviderCapabilities {
+        let (input, output, cached) = gemini_pricing(&self.model);
         ProviderCapabilities {
             model_name: self.model.clone(),
-            context_window_size: 1_000_000, // Gemini 1.5 Pro default
+            context_window_size: 1_000_000,
+            input_cost_per_mtok: input,
+            output_cost_per_mtok: output,
+            cached_cost_per_mtok: cached,
         }
     }
 }

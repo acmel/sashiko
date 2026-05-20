@@ -489,6 +489,9 @@ impl AiProvider for BedrockClient {
         ProviderCapabilities {
             model_name: self.model_id.clone(),
             context_window_size: self.context_window_size,
+            input_cost_per_mtok: None,
+            output_cost_per_mtok: None,
+            cached_cost_per_mtok: None,
         }
     }
 }
