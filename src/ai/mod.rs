@@ -344,6 +344,8 @@ pub async fn create_provider_cached(
     settings: &Settings,
     enable_cache: bool,
     cache_ttl_days: u64,
+    max_entries: u64,
+    max_size_mb: u64,
 ) -> Result<Arc<dyn AiProvider>> {
     let provider = create_provider(settings)?;
     if enable_cache {
@@ -351,9 +353,14 @@ pub async fn create_provider_cached(
             .parent()
             .unwrap_or(std::path::Path::new("."))
             .join("response_cache.db");
-        let cached =
-            cache::CachingAiProvider::new(provider, &cache_path.to_string_lossy(), cache_ttl_days)
-                .await?;
+        let cached = cache::CachingAiProvider::new(
+            provider,
+            &cache_path.to_string_lossy(),
+            cache_ttl_days,
+            max_entries,
+            max_size_mb,
+        )
+        .await?;
         Ok(Arc::new(cached))
     } else {
         Ok(provider)

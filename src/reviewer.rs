@@ -122,6 +122,8 @@ impl Reviewer {
             &settings,
             settings.ai.response_cache,
             settings.ai.response_cache_ttl_days,
+            settings.ai.response_cache_max_entries,
+            settings.ai.response_cache_max_size_mb,
         )
         .await
         .expect("Failed to create AI provider");

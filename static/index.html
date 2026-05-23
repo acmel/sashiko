@@ -1109,6 +1109,12 @@
             if (hash === '#/stats') {
                 return { view: 'stats', query };
             }
+            if (hash === '#/cache') {
+                return { view: 'cache', query };
+            }
+            if (hash === '#/cache-entry') {
+                return { view: 'cache-entry', query };
+            }
             return { view: 'list', query };
         }
 
@@ -1164,6 +1170,12 @@
                         break;
                     case 'stats':
                         await renderStatsView();
+                        break;
+                    case 'cache':
+                        await renderCacheView(route.query);
+                        break;
+                    case 'cache-entry':
+                        await renderCacheEntryView(route.query.hash);
                         break;
                     default:
                         await renderListView();
@@ -1445,11 +1457,14 @@
             });
         }
 
-        function renderStatCard(title, value) {
+        function renderStatCard(title, value, subtitle) {
+            const titleAttr = subtitle ? ` title="${escapeHtml(subtitle)}"` : '';
+            const sub = subtitle ? `<div style="font-size:11px;color:var(--text-secondary,#888);margin-top:2px">${escapeHtml(subtitle)}</div>` : '';
             return `
-                <div class="stat-card">
+                <div class="stat-card"${titleAttr}>
                     <h3>${escapeHtml(title)}</h3>
                     <div class="value">${escapeHtml(String(value))}</div>
+                    ${sub}
                 </div>
             `;
         }
@@ -1751,6 +1766,7 @@
                             <a href="#" onclick="event.preventDefault(); openAbout();" style="font-weight:500;">About</a>
                             <span class="stats-sep"></span>
                             <a href="#/stats" style="font-weight:500;">Stats</a>
+                            ${data.show_cache_stats ? '<span class="stats-sep"></span><a href="#/cache" style="font-weight:500;">Cache</a>' : ''}
                         </div>
                         <div class="stats-sep"></div>
                         <div class="stats-group">
@@ -1871,7 +1887,7 @@
                 summaryHtml = '<table style="margin-bottom: 20px;"><thead><tr><th>Patch</th><th>Potential Regressions</th></tr></thead><tbody>';
             }
 
-            let psTotalHits = 0, psTotalMisses = 0, psTotalSaved = 0, psTotalStored = 0;
+            let psTotalHits = 0, psTotalMisses = 0, psTotalSaved = 0, psTotalStored = 0, psTotalCost = 0;
 
             sortedPatchIds.forEach((pid, index) => {
                 const patch = patchMap.get(pid);
@@ -2025,6 +2041,7 @@
                             const st = latest.cache_tokens_stored || 0;
                             psTotalHits += h; psTotalMisses += m;
                             psTotalSaved += sv; psTotalStored += st;
+                            if (latest.estimated_cost_usd != null) psTotalCost += latest.estimated_cost_usd;
                             const t = h + m;
                             if (t > 0) {
                                 const rate = (h / t * 100).toFixed(1);
@@ -2037,7 +2054,7 @@
                                         <div class="cache-stat-cell"><span class="cache-stat-label">Saved</span><span class="cache-stat-val" style="color:var(--status-reviewed)">${fmtTokens(sv)}</span></div>
                                         <div class="cache-stat-cell"><span class="cache-stat-label">Stored</span><span class="cache-stat-val">${fmtTokens(st)}</span></div>
                                         <div class="cache-stat-cell"><span class="cache-stat-label">Calls</span><span class="cache-stat-val">${t}</span></div>
-                                    </div>
+                                    </div>${latest.estimated_cost_usd != null ? `<div class="cache-stats-grid" style="margin-top:6px"><div class="cache-stat-cell"><span class="cache-stat-label">Est. Cost</span><span class="cache-stat-val" style="color:var(--text)">$${latest.estimated_cost_usd < 0.01 ? latest.estimated_cost_usd.toFixed(4) : latest.estimated_cost_usd.toFixed(2)}</span></div></div>` : ''}
                                     <div class="cache-bar-row">
                                         <div class="cache-bar-label"><span>hit rate</span><span>${rate}%</span></div>
                                         <div class="cache-bar-track"><div class="cache-bar-fill" style="--pct:${rate}%"></div></div>
@@ -2195,7 +2212,7 @@
                             <div class="cache-stat-cell"><span class="cache-stat-label">Saved</span><span class="cache-stat-val" style="color:var(--status-reviewed)">${fmtTokens(psTotalSaved)}</span></div>
                             <div class="cache-stat-cell"><span class="cache-stat-label">Stored</span><span class="cache-stat-val">${fmtTokens(psTotalStored)}</span></div>
                             <div class="cache-stat-cell"><span class="cache-stat-label">Calls</span><span class="cache-stat-val">${psTotal}</span></div>
-                        </div>
+                        </div>${psTotalCost > 0 ? `<div class="cache-stats-grid" style="margin-top:6px"><div class="cache-stat-cell"><span class="cache-stat-label">Est. Cost</span><span class="cache-stat-val" style="color:var(--text)">$${psTotalCost < 0.01 ? psTotalCost.toFixed(4) : psTotalCost.toFixed(2)}</span></div></div>` : ''}
                         <div class="cache-bar-row">
                             <div class="cache-bar-label"><span>hit rate</span><span>${rate}%</span></div>
                             <div class="cache-bar-track"><div class="cache-bar-fill" style="--pct:${rate}%"></div></div>
@@ -3165,6 +3182,210 @@ ${escapeHtml((data.body || '(no body)').replace(/\n+$/, ''), true, false)}${data
             } catch (e) {
                 console.error(e);
                 document.getElementById('stats-content').innerHTML = `<div class="error">Error loading stats: ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        function describeCacheContext(ctx) {
+            if (!ctx) return '-';
+            const stageLabels = {
+                '0': 'Preparation',
+                '1': 'Commit goal analysis',
+                '2': 'Implementation verification',
+                '3': 'Execution flow',
+                '4': 'Resource management',
+                '5': 'Locking & synchronization',
+                '6': 'Security audit',
+                '7': 'Hardware review',
+                '8': 'Deduplication',
+                '9': 'Verification & severity',
+                'p': 'Prefetch',
+            };
+            if (ctx.includes('summary')) return ctx + ' Summary';
+            const m = ctx.match(/s:(\w+)/);
+            if (m && stageLabels[m[1]]) return ctx + ' ' + stageLabels[m[1]];
+            return ctx;
+        }
+
+        async function renderCacheView(query = {}) {
+            const page = parseInt(query.page) || 1;
+            const sort = query.sort || 'hit_count';
+            const order = query.order || 'desc';
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="nav"><a href="#/" onclick="event.preventDefault(); goBack();">&larr; Back</a></div>
+                <h1>Response Cache</h1>
+                <div id="cache-content" class="loading">Loading cache statistics...</div>
+            `;
+
+            try {
+                const [stats, entries] = await Promise.all([
+                    fetch('/api/cache/stats').then(r => { if (!r.ok) throw new Error('Cache stats not available'); return r.json(); }),
+                    fetch(`/api/cache/entries?sort=${sort}&order=${order}&per_page=50&page=${page}`).then(r => r.json())
+                ]);
+
+                const container = document.getElementById('cache-content');
+                container.classList.remove('loading');
+
+                let html = '<div class="stat-card-grid">';
+                html += renderStatCard('Cached Entries', stats.total_entries.toLocaleString());
+                html += renderStatCard('Total Cache Hits', stats.lifetime_hits.toLocaleString(),
+                    'Sum of hit_count across all entries');
+                html += renderStatCard('Tokens Saved by Hits', fmtTokens(stats.lifetime_tokens_saved),
+                    'SUM(tokens_saved × hit_count) — actual tokens avoided via cache hits');
+                html += renderStatCard('Tokens in Cache', fmtTokens(stats.tokens_stored),
+                    'SUM(tokens_saved) — total tokens across all unique entries');
+                html += renderStatCard('DB Size', formatSize(stats.db_size_bytes));
+                if (stats.max_entries > 0) html += renderStatCard('Max Entries', stats.max_entries.toLocaleString());
+                if (stats.max_size_mb > 0) html += renderStatCard('Max Size', stats.max_size_mb + ' MB');
+                html += '</div>';
+
+                // Charts row
+                html += '<div style="display:flex;gap:24px;flex-wrap:wrap;margin:24px 0;">';
+                html += '<div style="flex:1;min-width:300px;"><h2>Hit Distribution</h2><div id="chart-hit-dist" style="width:100%;height:300px;"></div></div>';
+                html += '<div style="flex:1;min-width:300px;"><h2>Entries by Model</h2><div id="chart-by-model" style="width:100%;height:300px;"></div></div>';
+                html += '</div>';
+
+                // Top entries table
+                html += '<h2>Top Entries by Hit Count</h2>';
+                html += '<div style="overflow-x:auto;">';
+                html += '<table class="summary-table"><thead><tr>';
+                html += '<th>Hash</th><th>Context</th><th>Model</th><th>Hits</th><th>Entry Tokens</th><th>Created</th><th>Last Accessed</th>';
+                html += '</tr></thead><tbody>';
+                for (const e of entries.items) {
+                    html += `<tr style="cursor:pointer" onclick="window.location.hash='#/cache-entry?hash=${encodeURIComponent(e.request_hash)}'">
+                        <td><code>${escapeHtml(e.request_hash.substring(0, 12))}</code></td>
+                        <td>${escapeHtml(describeCacheContext(e.context))}</td>
+                        <td>${escapeHtml(e.model)}</td>
+                        <td style="text-align:right">${e.hit_count.toLocaleString()}</td>
+                        <td style="text-align:right">${fmtTokens(e.tokens_saved)}</td>
+                        <td>${formatDate(e.created_at, true)}</td>
+                        <td>${formatDate(e.last_accessed_at, true)}</td>
+                    </tr>`;
+                }
+                html += '</tbody></table></div>';
+
+                // Pagination
+                if (entries.total > entries.per_page) {
+                    const totalPages = Math.ceil(entries.total / entries.per_page);
+                    const sortParams = `&sort=${sort}&order=${order}`;
+                    html += '<div style="margin-top:12px;text-align:center;">';
+                    html += `<span>Page ${entries.page} of ${totalPages} (${entries.total} entries)</span>`;
+                    if (entries.page > 1) {
+                        html += ` <a href="#/cache?page=${entries.page - 1}${sortParams}">&laquo; Prev</a>`;
+                    }
+                    if (entries.page < totalPages) {
+                        html += ` <a href="#/cache?page=${entries.page + 1}${sortParams}">Next &raquo;</a>`;
+                    }
+                    html += '</div>';
+                }
+
+                container.innerHTML = html;
+
+                // Render charts
+                const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const themeAxis = isDark ? '#888' : '#999';
+
+                if (stats.hit_distribution && stats.hit_distribution.length > 0) {
+                    const hitChart = echarts.init(document.getElementById('chart-hit-dist'), isDark ? 'dark' : null);
+                    hitChart.setOption({
+                        backgroundColor: 'transparent',
+                        tooltip: { trigger: 'axis' },
+                        xAxis: { type: 'category', data: stats.hit_distribution.map(d => d.bucket), axisLine: { lineStyle: { color: themeAxis } } },
+                        yAxis: { type: 'value', splitLine: { lineStyle: { type: 'dashed' } } },
+                        series: [{ type: 'bar', data: stats.hit_distribution.map(d => d.count), itemStyle: { color: '#5470c6' } }]
+                    });
+                    window.addEventListener('resize', () => hitChart.resize());
+                }
+
+                if (stats.entries_by_model && stats.entries_by_model.length > 0) {
+                    const modelChart = echarts.init(document.getElementById('chart-by-model'), isDark ? 'dark' : null);
+                    modelChart.setOption({
+                        backgroundColor: 'transparent',
+                        tooltip: { trigger: 'item' },
+                        series: [{
+                            type: 'pie',
+                            radius: '60%',
+                            data: stats.entries_by_model.map(d => ({ name: d.model, value: d.count })),
+                            label: { formatter: '{b}: {c}' }
+                        }]
+                    });
+                    window.addEventListener('resize', () => modelChart.resize());
+                }
+
+            } catch (e) {
+                console.error(e);
+                document.getElementById('cache-content').innerHTML = `<div class="error">Error loading cache stats: ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        async function renderCacheEntryView(hash) {
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="nav"><a href="#/cache" onclick="event.preventDefault(); goBack();">&larr; Back to Cache</a></div>
+                <h1>Cache Entry</h1>
+                <div id="entry-content" class="loading">Loading...</div>
+            `;
+
+            try {
+                const res = await fetch(`/api/cache/entry?hash=${encodeURIComponent(hash)}`);
+                if (!res.ok) throw new Error('Entry not found');
+                const entry = await res.json();
+
+                const container = document.getElementById('entry-content');
+                container.classList.remove('loading');
+
+                let html = '<div class="stat-card-grid">';
+                html += renderStatCard('Context', describeCacheContext(entry.context));
+                html += renderStatCard('Model', entry.model);
+                html += renderStatCard('Hits', entry.hit_count.toLocaleString());
+                html += renderStatCard('Entry Tokens', fmtTokens(entry.tokens_saved),
+                    'prompt + completion tokens for this cached API call');
+                html += renderStatCard('Created', formatDate(entry.created_at, true));
+                html += renderStatCard('Last Accessed', formatDate(entry.last_accessed_at, true));
+                html += '</div>';
+
+                html += `<p style="margin:12px 0;color:var(--text-secondary,#666)"><code>${escapeHtml(entry.request_hash)}</code></p>`;
+
+                // Request: show system prompt and messages
+                html += '<h2>Request</h2>';
+                const req = entry.request_json;
+                if (req.system) {
+                    html += '<h3>System Prompt</h3>';
+                    html += `<pre style="white-space:pre-wrap;max-height:400px;overflow:auto;padding:12px;background:var(--bg-secondary,#f5f5f5);border-radius:6px;font-size:13px;">${escapeHtml(typeof req.system === 'string' ? req.system : JSON.stringify(req.system, null, 2))}</pre>`;
+                }
+                if (req.messages && req.messages.length > 0) {
+                    html += '<h3>Messages</h3>';
+                    for (const msg of req.messages) {
+                        const role = msg.role || 'unknown';
+                        const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content, null, 2);
+                        html += `<div style="margin:8px 0;"><strong>${escapeHtml(role)}:</strong></div>`;
+                        html += `<pre style="white-space:pre-wrap;max-height:300px;overflow:auto;padding:12px;background:var(--bg-secondary,#f5f5f5);border-radius:6px;font-size:13px;">${escapeHtml(content)}</pre>`;
+                    }
+                }
+
+                // Response: show the text content
+                html += '<h2>Response</h2>';
+                const resp = entry.response_json;
+                if (resp.text) {
+                    html += `<pre style="white-space:pre-wrap;max-height:500px;overflow:auto;padding:12px;background:var(--bg-secondary,#f5f5f5);border-radius:6px;font-size:13px;">${escapeHtml(resp.text)}</pre>`;
+                } else {
+                    html += `<pre style="white-space:pre-wrap;max-height:500px;overflow:auto;padding:12px;background:var(--bg-secondary,#f5f5f5);border-radius:6px;font-size:13px;">${escapeHtml(JSON.stringify(resp, null, 2))}</pre>`;
+                }
+
+                // Usage stats if available
+                if (resp.usage) {
+                    html += '<h3>Token Usage</h3>';
+                    html += '<div class="stat-card-grid">';
+                    html += renderStatCard('Prompt Tokens', (resp.usage.prompt_tokens || 0).toLocaleString());
+                    html += renderStatCard('Completion Tokens', (resp.usage.completion_tokens || 0).toLocaleString());
+                    if (resp.usage.cached_tokens) html += renderStatCard('Cached Tokens', resp.usage.cached_tokens.toLocaleString());
+                    html += '</div>';
+                }
+
+                container.innerHTML = html;
+            } catch (e) {
+                console.error(e);
+                document.getElementById('entry-content').innerHTML = `<div class="error">Error: ${escapeHtml(e.message)}</div>`;
             }
         }
 

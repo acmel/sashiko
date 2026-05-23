@@ -130,6 +130,11 @@ pub struct AppState {
     pub smtp_enabled: bool,
     pub dry_run: bool,
     pub show_cache_stats: bool,
+    pub cache_conn: Option<libsql::Connection>,
+    pub cache_path: String,
+    pub cache_max_entries: u64,
+    pub cache_max_size_mb: u64,
+    cache_overview_cache: AsyncCache<serde_json::Value>,
     stats_timeline_cache: AsyncMapCache<Option<i64>, serde_json::Value>,
     stats_reviews_cache: AsyncCache<serde_json::Value>,
     stats_tools_cache: AsyncCache<serde_json::Value>,
@@ -247,6 +252,10 @@ pub fn build_router(
     smtp_enabled: bool,
     dry_run: bool,
     show_cache_stats: bool,
+    cache_conn: Option<libsql::Connection>,
+    cache_path: String,
+    cache_max_entries: u64,
+    cache_max_size_mb: u64,
 ) -> Router {
     let state = Arc::new(AppState {
         db,
@@ -257,6 +266,11 @@ pub fn build_router(
         smtp_enabled,
         dry_run,
         show_cache_stats,
+        cache_conn,
+        cache_path,
+        cache_max_entries,
+        cache_max_size_mb,
+        cache_overview_cache: AsyncCache::new(Duration::from_secs(60)),
         stats_timeline_cache: AsyncMapCache::new(Duration::from_secs(60)),
         stats_reviews_cache: AsyncCache::new(Duration::from_secs(60)),
         stats_tools_cache: AsyncCache::new(Duration::from_secs(60)),
@@ -279,6 +293,9 @@ pub fn build_router(
         .route("/api/stats/timeline", get(stats_timeline))
         .route("/api/stats/reviews", get(stats_reviews))
         .route("/api/stats/tools", get(stats_tools))
+        .route("/api/cache/stats", get(cache_stats))
+        .route("/api/cache/entries", get(cache_entries))
+        .route("/api/cache/entry", get(cache_entry_detail))
         .route("/api/submit", post(submit_patch))
         .route("/api/patchset/rerun", post(rerun_patchset))
         .route("/api/patchset/cancel", post(cancel_patchset))
@@ -297,6 +314,10 @@ pub async fn run_server(
     smtp_enabled: bool,
     dry_run: bool,
     show_cache_stats: bool,
+    cache_conn: Option<libsql::Connection>,
+    cache_path: String,
+    cache_max_entries: u64,
+    cache_max_size_mb: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let app = build_router(
         db,
@@ -307,6 +328,10 @@ pub async fn run_server(
         smtp_enabled,
         dry_run,
         show_cache_stats,
+        cache_conn,
+        cache_path,
+        cache_max_entries,
+        cache_max_size_mb,
     );
 
     let bind_addr = format!("{}:{}", settings.host, settings.port);
@@ -887,7 +912,7 @@ async fn get_message(
 }
 
 async fn get_stats(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let pending = crate::metrics::get_pending_patches();
     let reviewing = crate::metrics::get_reviewing_patches();
@@ -900,7 +925,8 @@ async fn get_stats(
         "pending": pending,
         "reviewing": reviewing,
         "messages": messages,
-        "patchsets": patchsets
+        "patchsets": patchsets,
+        "show_cache_stats": state.show_cache_stats
     })))
 }
 
@@ -952,6 +978,93 @@ async fn stats_tools(
         })
         .await?;
     Ok(Json(data))
+}
+
+async fn cache_stats(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !state.show_cache_stats {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let data = state
+        .cache_overview_cache
+        .get_or_fetch(|| async {
+            let conn = state.cache_conn.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+            let overview = crate::ai::cache::query_cache_overview(
+                conn,
+                &state.cache_path,
+                state.cache_max_entries,
+                state.cache_max_size_mb,
+            )
+            .await
+            .map_err(|e| {
+                info!("Error getting cache stats: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+            serde_json::to_value(overview).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        })
+        .await?;
+    Ok(Json(data))
+}
+
+#[derive(Deserialize)]
+struct CacheEntriesQuery {
+    page: Option<u32>,
+    per_page: Option<u32>,
+    sort: Option<String>,
+    order: Option<String>,
+}
+
+async fn cache_entries(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<CacheEntriesQuery>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !state.show_cache_stats {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let conn = state.cache_conn.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let page = query.page.unwrap_or(1);
+    let per_page = query.per_page.unwrap_or(50);
+    let sort_by = query.sort.as_deref().unwrap_or("hit_count");
+    let sort_order = query.order.as_deref().unwrap_or("desc");
+
+    let (items, total) =
+        crate::ai::cache::query_cache_entries(conn, page, per_page, sort_by, sort_order)
+            .await
+            .map_err(|e| {
+                info!("Error getting cache entries: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+    Ok(Json(serde_json::json!({
+        "items": items,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    })))
+}
+
+#[derive(Deserialize)]
+struct CacheEntryQuery {
+    hash: String,
+}
+
+async fn cache_entry_detail(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<CacheEntryQuery>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !state.show_cache_stats {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let conn = state.cache_conn.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let entry = crate::ai::cache::query_cache_entry_detail(conn, &query.hash)
+        .await
+        .map_err(|e| {
+            info!("Error getting cache entry: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(serde_json::to_value(entry).unwrap_or_default()))
 }
 
 async fn rerun_patchset(

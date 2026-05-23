@@ -509,6 +509,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let smtp_enabled = settings.smtp.is_some();
     let dry_run = settings.smtp.as_ref().map(|s| s.dry_run).unwrap_or(false);
     let show_cache_stats = settings.ai.show_cache_stats;
+    // Open a separate read-only connection to the cache DB for the API layer.
+    // The CachingAiProvider has its own write connection; WAL mode supports this.
+    let cache_path = std::path::Path::new(&settings.database.url)
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join("response_cache.db");
+    let cache_path_str = cache_path.to_string_lossy().to_string();
+    let cache_conn = if settings.ai.response_cache && cache_path.exists() {
+        match libsql::Builder::new_local(&cache_path).build().await {
+            Ok(db) => db.connect().ok(),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+    let cache_max_entries = settings.ai.response_cache_max_entries;
+    let cache_max_size_mb = settings.ai.response_cache_max_size_mb;
     tokio::spawn(async move {
         if let Err(e) = sashiko::api::run_server(
             api_settings,
@@ -519,6 +536,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             smtp_enabled,
             dry_run,
             show_cache_stats,
+            cache_conn,
+            cache_path_str,
+            cache_max_entries,
+            cache_max_size_mb,
         )
         .await
         {

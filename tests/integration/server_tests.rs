@@ -50,6 +50,10 @@ async fn spawn_test_server(read_only: bool) -> TestServer {
         /* smtp_enabled */ false,
         /* dry_run */ true,
         /* show_cache_stats */ false,
+        /* cache_conn */ None,
+        /* cache_path */ String::new(),
+        /* cache_max_entries */ 0,
+        /* cache_max_size_mb */ 0,
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -35,6 +35,8 @@ temperature = 1.0
 # calls.  Cached entries are keyed by a SHA-256 hash of the request.
 # response_cache = true
 # response_cache_ttl_days = 7  # Expire cached entries after this many days
+# response_cache_max_entries = 10000  # Max cache entries (0 = unlimited)
+# response_cache_max_size_mb = 500    # Max cache DB file size in MB (0 = unlimited)
 
 # Show per-patch and per-patchset response cache hit/miss statistics in
 # the CLI `show` output, web UI hover tooltips, and daemon log output.
