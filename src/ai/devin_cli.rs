@@ -160,6 +160,9 @@ impl AiProvider for DevinCliProvider {
         ProviderCapabilities {
             model_name: self.model.clone().unwrap_or_else(|| "default".to_string()),
             context_window_size: 200_000,
+            input_cost_per_mtok: None,
+            output_cost_per_mtok: None,
+            cached_cost_per_mtok: None,
         }
     }
 }
