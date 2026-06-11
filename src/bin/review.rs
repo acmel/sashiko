@@ -150,8 +150,26 @@ async fn main() -> Result<()> {
 
             if let Some(commit_hash) = &args.review_commit {
                 info!("Directly reviewing commit {}", commit_hash);
-                // Virtualized HEAD allows us to directly review the commit without
-                // physically checking it out in the shared worktree.
+                // We assume the caller has already validated the series and applied it.
+                // We just checkout the specific commit.
+                // Note: The commit must exist in the repo (shared object store).
+
+                // Fetch/Checkout logic for worktree
+                // GitWorktree::new checks out 'baseline' initially.
+                // We need to fetch/reset to the specific commit.
+                // Since it's a shared repo, we can just reset --hard to the hash.
+                if let Err(e) = worktree.reset_hard(commit_hash).await {
+                     error!("Failed to checkout target commit {}: {}", commit_hash, e);
+                     let result_json = json!({
+                        "patchset_id": patchset_id,
+                        "baseline": baseline_arg,
+                        "patches": patch_results,
+                        "error": format!("Failed to checkout target commit: {}", e)
+                    });
+                    println!("{}", serde_json::to_string(&result_json)?);
+                    return Ok(());
+                }
+
                 all_applied = true;
 
                 // Populate metadata for the single patch we are reviewing
@@ -212,6 +230,70 @@ async fn main() -> Result<()> {
             }
 
             if all_applied {
+                // 2. Prepare worktree context if reviewing a specific patch
+                // Only needed if we didn't use review_commit (which already sets context)
+                if args.review_commit.is_none()
+                    && let Some(target_idx) = args.review_patch_index {
+
+                    // Optimization: Only reset if target_idx < max_index
+                    let max_index = patches.iter().map(|p| p.index).max().unwrap_or(0);
+
+                    if target_idx < max_index {
+                        info!(
+                            "Resetting worktree to baseline to prepare context for patch {}...",
+                            target_idx
+                        );
+                        if let Err(e) = worktree.reset_hard(&baseline_sha).await {
+                            error!("Failed to reset worktree: {}", e);
+                            // If reset fails, we can't proceed safely.
+                            // Report error.
+                            let result_json = json!({
+                                "patchset_id": patchset_id,
+                                "baseline": baseline_arg,
+                                "patches": patch_results,
+                                "error": format!("Failed to reset worktree: {}", e)
+                            });
+                            println!("{}", serde_json::to_string(&result_json)?);
+                            return Ok(());
+                        }
+
+                        info!("Re-applying patches up to index {}...", target_idx);
+                        // We use dummy containers because we already have results/shas from validation pass
+                        let mut dummy_results = Vec::new();
+                        let mut dummy_shas = std::collections::HashMap::new();
+                        let mut dummy_shows = std::collections::HashMap::new();
+
+                        let mut dummy_msgs = std::collections::HashMap::new();
+
+                        let patches_subset: Vec<&PatchInput> =
+                            patches.iter().filter(|p| p.index <= target_idx).collect();
+                        for p in patches_subset {
+                            let success = apply_single_patch(
+                                &worktree,
+                                p,
+                                &mut dummy_shas,
+                                &mut dummy_shows,
+                                &mut dummy_msgs,
+                                &mut dummy_results,
+                            )
+                            .await;
+
+                            if !success {
+                                // Inconsistent state: patch applied successfully on first pass but failed on second.
+                                error!("Patch {} failed to apply on second pass!", p.index);
+                                let result_json = json!({
+                                    "patchset_id": patchset_id,
+                                    "baseline": baseline_arg,
+                                    "patches": patch_results,
+                                    "error": "Inconsistent patch application (failed on re-apply)"
+                                });
+                                println!("{}", serde_json::to_string(&result_json)?);
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+
                 if patches_to_review.is_empty() {
                     info!("No patches matched review index or list empty. Skipping AI review.");
                     // Return success with patches status (even if we didn't review anything)
