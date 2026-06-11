@@ -357,13 +357,17 @@ async fn main() -> Result<()> {
 
                     let mut review_result_to_print = None;
 
+                    // Create the provider once — the IPC registry and stdin reader
+                    // task must be shared across retry attempts.  Creating a new
+                    // StdioGeminiClient per attempt spawns competing stdin readers
+                    // that race on dispatching responses, causing "Unsolicited
+                    // response" protocol errors.
+                    let provider = sashiko::ai::create_provider(&settings).expect("Failed to create AI provider");
+
                     for attempt in 1..=3 {
                         if attempt > 1 {
                             info!("Restarting AI review (attempt {}/3)...", attempt);
                         }
-
-                        // Use stdio-gemini for the binary as it expects to communicate with parent
-                        let provider = sashiko::ai::create_provider(&settings).expect("Failed to create AI provider");
 
                         // Enable read_prompt tool only if explicit caching is NOT used.
                         let prompts_dir = PathBuf::from("third_party/prompts/kernel");
@@ -414,7 +418,7 @@ async fn main() -> Result<()> {
                         );
 
                         let mut worker = Worker::new(
-                            provider,
+                            provider.clone(),
                             std::sync::Arc::new(tools),
                             prompts,
                             WorkerConfig {
